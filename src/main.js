@@ -8,6 +8,29 @@ const CANDIDATE_NAME = 'Ni Putu Sabrina Abelia Putri'
 const CANDIDATE_UNIV = 'Universitas Udayana'
 const CANDIDATE_PHOTO = 'https://voteqrisbali.com/storage/candidate-media/01KPN1E55P7A35G1MA7MX71FBP.jpg'
 
+// Success chime
+let audioCtx = null
+function playSuccess() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    const notes = [523.25, 659.25, 783.99] // C5 E5 G5 major arpeggio
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.connect(gain)
+      gain.connect(audioCtx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      const t = audioCtx.currentTime + i * 0.1
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(0.25, t + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35)
+      osc.start(t)
+      osc.stop(t + 0.35)
+    })
+  } catch (e) {}
+}
+
 const state = {
   accessKey: null,
   keyExpiresAt: null,
@@ -171,12 +194,13 @@ function startStatusPolling() {
       const res = await fetch(`${API_BASE}/event/vote/${state.currentVoteId}/status`)
       const data = await res.json()
       const s = (data.status || '').toUpperCase()
-      if (s === 'COMPLETED' || s === 'PAID') {
+      if (s === 'COMPLETED' || s === 'PAID' || s === 'SUCCESS' || s === 'SETTLED') {
         state.sessionVotes++
         stopPolling()
         stopTimer()
         fetchVoteCount()
         state.qrState = 'success'
+        playSuccess()
         renderQuickVote()
         // Auto-next after 1.5s
         setTimeout(() => initiateVote(), 1500)
