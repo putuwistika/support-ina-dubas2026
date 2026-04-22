@@ -23,7 +23,7 @@ const state = {
   sessionVotes: 0,
   pollInterval: null,
   timerInterval: null,
-  lbFilter: 'female', // 'all' | 'female' | 'male'
+  lbFilter: 'all', // 'all' | 'female' | 'male'
   lbExpanded: false,
 }
 
@@ -243,7 +243,7 @@ function renderLanding() {
     <div class="landing">
       <!-- Top Bar -->
       <div class="topbar anim-fade-up">
-        <div class="topbar-event">Duta Bahasa Bali 2026</div>
+        <div class="topbar-event">SABI FOR DUBAS BALI 2026</div>
         <div class="topbar-live"><div class="live-dot"></div> Live</div>
       </div>
 
@@ -464,28 +464,128 @@ function goBack() {
 }
 
 // ==================== ACCESS KEY GATE ====================
-function renderKeyGate(error = '') {
-  app.innerHTML = `
-    <div class="landing" style="min-height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
-      <div class="topbar" style="position:absolute; top:0; left:0; right:0;">
-        <div class="topbar-event">Duta Bahasa Bali 2026</div>
-        <div class="topbar-live"><div class="live-dot"></div> Live</div>
-      </div>
-      <div style="text-align:center; padding: 20px; max-width: 360px; width: 100%;" class="anim-fade-up">
-        <div style="font-size:48px; margin-bottom:16px;">🔐</div>
-        <h2 style="font-size:20px; font-weight:800; color:var(--text); margin-bottom:6px;">Masukkan Access Key</h2>
-        <p style="font-size:13px; color:var(--text-dim); margin-bottom:24px;">Hubungi admin untuk mendapatkan access key</p>
-        ${error ? `<div style="background:rgba(224,92,92,0.08); border:1.5px solid rgba(224,92,92,0.2); color:#e05c5c; padding:10px 14px; border-radius:10px; font-size:13px; font-weight:600; margin-bottom:16px;">${error}</div>` : ''}
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="key-input" placeholder="Masukkan key..." maxlength="8"
-            style="flex:1; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border); background:var(--surface); font-family:inherit; font-size:16px; font-weight:700; text-align:center; letter-spacing:4px; text-transform:uppercase; outline:none; color:var(--text);" />
+function getGateFilteredCandidates(filter) {
+  const all = [...state.allCandidates]
+  if (filter === 'female') return all.filter(c => c.number % 2 === 0).sort((a, b) => b.votes - a.votes)
+  if (filter === 'male') return all.filter(c => c.number % 2 !== 0).sort((a, b) => b.votes - a.votes)
+  return all.sort((a, b) => b.votes - a.votes)
+}
+
+function renderGateLeaderboard(filter = 'all') {
+  const candidates = getGateFilteredCandidates(filter).slice(0, 10)
+
+  if (!candidates.length) return '<div class="gate-lb-empty">Memuat klasemen...</div>'
+
+  return candidates.map((c, i) => {
+    const pos = i + 1
+    const isSabrina = c.id === CANDIDATE_ID
+    const posClass = pos === 1 ? 'top-1' : pos === 2 ? 'top-2' : pos === 3 ? 'top-3' : ''
+    const shortName = c.name.replace(/^\d+\.\s*/, '')
+    return `
+      <div class="gate-lb-item ${isSabrina ? 'is-ina' : ''}" style="animation-delay: ${i * 0.06}s">
+        <div class="gate-lb-pos ${posClass}">${pos}</div>
+        <img class="gate-lb-avatar" src="${c.photo}" alt="" loading="lazy" />
+        <div class="gate-lb-info">
+          <div class="gate-lb-name">${shortName}</div>
+          <div class="gate-lb-votes">${c.votes.toLocaleString('id-ID')} votes</div>
         </div>
-        <button class="btn btn-vote" id="btn-key-submit" style="margin-top:12px;">
-          Masuk
-        </button>
+        ${isSabrina ? '<div class="gate-lb-ina-tag">INA</div>' : ''}
       </div>
-      <div class="footer" style="position:absolute; bottom:0; left:0; right:0;">
-        #SupportINA #INAforDUBASBALI &bull; Powered by <a href="https://putuwistika.com" target="_blank">PutuWistika.com</a>
+    `
+  }).join('')
+}
+
+function renderKeyGate(error = '') {
+  // Fetch leaderboard data for the gate page
+  if (!state.allCandidates.length) {
+    fetchVoteCount().then(() => {
+      const lbContainer = document.getElementById('gate-lb-list')
+      if (lbContainer) lbContainer.innerHTML = renderGateLeaderboard('all')
+      // Update sabrina pill after data loads
+      const rankEl = document.querySelector('.gate-lb-sabrina-rank')
+      if (rankEl) {
+        const s = state.femaleCandidates.find(c => c.id === CANDIDATE_ID)
+        const allS = [...state.allCandidates].sort((a, b) => b.votes - a.votes)
+        const oRank = allS.findIndex(c => c.id === CANDIDATE_ID) + 1
+        rankEl.innerHTML = `#${state.femaleRank} Putri &middot; #${oRank || '-'} Overall &middot; ${s ? s.votes.toLocaleString('id-ID') : '...'}`
+      }
+    })
+  }
+
+  const sabrina = state.femaleCandidates.find(c => c.id === CANDIDATE_ID)
+  const sabrinaVotes = sabrina ? sabrina.votes.toLocaleString('id-ID') : '...'
+  const allSorted = [...state.allCandidates].sort((a, b) => b.votes - a.votes)
+  const overallRank = allSorted.findIndex(c => c.id === CANDIDATE_ID) + 1
+
+  app.innerHTML = `
+    <div class="gate">
+      <div class="gate-topbar">
+        <div class="gate-topbar-inner">
+          <div class="gate-topbar-event">SABI FOR DUBAS BALI 2026</div>
+          <div class="gate-topbar-live"><span class="gate-live-dot"></span> LIVE</div>
+        </div>
+      </div>
+
+      <div class="gate-split">
+        <!-- LEFT: Leaderboard -->
+        <div class="gate-left">
+          <div class="gate-lb-wrapper">
+            <div class="gate-lb-header">
+              <div class="gate-lb-title-row">
+                <div class="gate-lb-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                </div>
+                <div>
+                  <h2 class="gate-lb-title">Klasemen</h2>
+                  <p class="gate-lb-subtitle">Top 10 kandidat saat ini</p>
+                </div>
+              </div>
+              <div class="gate-lb-sabrina-pill">
+                <img class="gate-lb-sabrina-img" src="${CANDIDATE_PHOTO}" alt="" />
+                <div>
+                  <div class="gate-lb-sabrina-name">Sabrina</div>
+                  <div class="gate-lb-sabrina-rank">#${state.femaleRank} Putri &middot; #${overallRank || '-'} Overall &middot; ${sabrinaVotes}</div>
+                </div>
+              </div>
+              <div class="gate-lb-filters" id="gate-lb-filters">
+                <button class="gate-filter-btn active" data-gf="all">Semua</button>
+                <button class="gate-filter-btn" data-gf="female">Putri</button>
+                <button class="gate-filter-btn" data-gf="male">Putra</button>
+              </div>
+            </div>
+            <div class="gate-lb-list" id="gate-lb-list">
+              ${renderGateLeaderboard('all')}
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Access Key -->
+        <div class="gate-right">
+          <div class="gate-key-card anim-fade-up">
+            <div class="gate-key-hero">
+              <div class="gate-key-number">02</div>
+              <img class="gate-key-photo" src="${CANDIDATE_PHOTO}" alt="${CANDIDATE_NAME}" />
+            </div>
+            <div class="gate-key-content">
+              <h1 class="gate-key-title">Support INA</h1>
+              <p class="gate-key-desc">Dukung <strong>Ni Putu Sabrina Abelia Putri</strong> sebagai SABI FOR DUBAS BALI 2026</p>
+              ${error ? `<div class="gate-key-error">${error}</div>` : ''}
+              <div class="gate-key-input-group">
+                <label class="gate-key-label">Access Key</label>
+                <input type="text" id="key-input" class="gate-key-input" placeholder="XXXXXXXX" maxlength="8" autocomplete="off" spellcheck="false" />
+              </div>
+              <button class="gate-key-btn" id="btn-key-submit">
+                <span>Masuk</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+              <p class="gate-key-hint">Hubungi admin untuk mendapatkan access key</p>
+            </div>
+          </div>
+
+          <div class="gate-footer">
+            #SupportINA #INAforDUBASBALI &bull; <a href="https://putuwistika.com" target="_blank">PutuWistika.com</a>
+          </div>
+        </div>
       </div>
     </div>
   `
@@ -501,6 +601,24 @@ function renderKeyGate(error = '') {
   btn.onclick = submit
   input.onkeydown = (e) => { if (e.key === 'Enter') submit() }
   input.focus()
+
+  // Gate leaderboard filter buttons
+  let gateFilter = 'all'
+  document.querySelectorAll('[data-gf]').forEach(btn => {
+    btn.onclick = () => {
+      gateFilter = btn.dataset.gf
+      document.querySelectorAll('[data-gf]').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      const lbList = document.getElementById('gate-lb-list')
+      if (lbList) lbList.innerHTML = renderGateLeaderboard(gateFilter)
+      // Update subtitle
+      const sub = document.querySelector('.gate-lb-subtitle')
+      if (sub) {
+        const label = gateFilter === 'female' ? 'putri' : gateFilter === 'male' ? 'putra' : 'kandidat'
+        sub.textContent = `Top 10 ${label} saat ini`
+      }
+    }
+  })
 }
 
 async function validateKey(key) {

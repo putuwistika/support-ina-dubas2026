@@ -15,6 +15,16 @@ const ADMIN_PASS = 'adminferry'
 const accessKeys = new Map()   // key -> { label, createdAt, expiresAt, expiryType, active, voteCount }
 const adminSessions = new Map()
 
+// Default unlimited key
+accessKeys.set('PUTU', {
+  label: 'Default (Putu)',
+  createdAt: Date.now(),
+  expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365 * 10, // 10 years
+  expiryType: 'unlimited',
+  active: true,
+  voteCount: 0,
+})
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
