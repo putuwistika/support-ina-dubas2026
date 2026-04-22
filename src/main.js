@@ -244,7 +244,12 @@ function renderLanding() {
       <!-- Top Bar -->
       <div class="topbar anim-fade-up">
         <div class="topbar-event">SABI FOR DUBAS BALI 2026</div>
-        <div class="topbar-live"><div class="live-dot"></div> Live</div>
+        <div class="topbar-right">
+          <div class="topbar-live"><div class="live-dot"></div> Live</div>
+          <button class="topbar-logout" id="btn-logout" title="Logout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
       </div>
 
       <div class="landing-desktop-grid">
@@ -341,6 +346,17 @@ function renderLanding() {
     state.qrState = 'idle'
     renderQuickVote()
     initiateVote()
+  }
+
+  // Logout button
+  document.getElementById('btn-logout').onclick = () => {
+    state.authenticated = false
+    state.accessKey = null
+    state.keyExpiresAt = null
+    sessionStorage.removeItem('vote_key')
+    stopPolling()
+    stopTimer()
+    renderKeyGate()
   }
 }
 
@@ -568,7 +584,7 @@ function renderKeyGate(error = '') {
             </div>
             <div class="gate-key-content">
               <h1 class="gate-key-title">Support INA</h1>
-              <p class="gate-key-desc">Dukung <strong>Ni Putu Sabrina Abelia Putri</strong> sebagai SABI FOR DUBAS BALI 2026</p>
+              <p class="gate-key-desc">Dukung <strong>Ni Putu Sabrina Abelia Putri</strong></p>
               ${error ? `<div class="gate-key-error">${error}</div>` : ''}
               <div class="gate-key-input-group">
                 <label class="gate-key-label">Access Key</label>
