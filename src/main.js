@@ -60,8 +60,10 @@ function updateAllDisplays() {
   document.querySelectorAll('[data-vote-count]').forEach(el => {
     el.textContent = state.voteCount.toLocaleString('id-ID')
   })
-  document.querySelectorAll('[data-female-rank]').forEach(el => {
-    el.textContent = `#${state.femaleRank}`
+  const allSortedUp = [...state.allCandidates].sort((a, b) => b.votes - a.votes)
+  const overallRankUp = allSortedUp.findIndex(c => c.id === CANDIDATE_ID) + 1 || '-'
+  document.querySelectorAll('[data-overall-rank]').forEach(el => {
+    el.textContent = `#${overallRankUp}`
   })
   // Re-render leaderboard if on landing page
   if (state.page === 'landing') {
@@ -238,6 +240,9 @@ function renderLanding() {
   stopTimer()
 
   const totalFemale = state.femaleCandidates.length || 10
+  const totalAll = state.allCandidates.length || 20
+  const allSorted = [...state.allCandidates].sort((a, b) => b.votes - a.votes)
+  const overallRank = allSorted.findIndex(c => c.id === CANDIDATE_ID) + 1 || '-'
 
   app.innerHTML = `
     <div class="landing">
@@ -273,8 +278,8 @@ function renderLanding() {
             </div>
             <div class="stat-sep"></div>
             <div class="stat">
-              <div class="stat-val accent" data-female-rank>#${state.femaleRank}</div>
-              <div class="stat-lbl">Rank Putri</div>
+              <div class="stat-val accent" data-overall-rank>#${overallRank}</div>
+              <div class="stat-lbl">Rank</div>
             </div>
             <div class="stat-sep"></div>
             <div class="stat">
@@ -289,10 +294,10 @@ function renderLanding() {
           <!-- Rank Card -->
           <div class="rank-section anim-fade-up-2">
             <div class="rank-card">
-              <div class="rank-badge" data-female-rank>#${state.femaleRank}</div>
+              <div class="rank-badge">#${overallRank}</div>
               <div class="rank-info">
-                <div class="rank-title">Klasemen Putri</div>
-                <div class="rank-value">Peringkat <span>dari ${totalFemale} peserta putri</span></div>
+                <div class="rank-title">Klasemen Keseluruhan</div>
+                <div class="rank-value">Peringkat <span>dari ${totalAll} peserta</span></div>
               </div>
               <div class="rank-arrow">›</div>
             </div>
@@ -303,9 +308,9 @@ function renderLanding() {
             <div class="section-head">
               <div class="section-title">Klasemen</div>
               <div class="section-filter">
+                <button class="filter-btn ${state.lbFilter === 'all' ? 'active' : ''}" data-filter="all">Semua</button>
                 <button class="filter-btn ${state.lbFilter === 'female' ? 'active' : ''}" data-filter="female">Putri</button>
                 <button class="filter-btn ${state.lbFilter === 'male' ? 'active' : ''}" data-filter="male">Putra</button>
-                <button class="filter-btn ${state.lbFilter === 'all' ? 'active' : ''}" data-filter="all">Semua</button>
               </div>
             </div>
             <div class="lb-list" id="lb-list"></div>
