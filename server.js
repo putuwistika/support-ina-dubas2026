@@ -15,6 +15,26 @@ const ADMIN_PASS = 'adminferry'
 const accessKeys = new Map()   // key -> { label, createdAt, expiresAt, expiryType, active, voteCount }
 const adminSessions = new Map()
 
+// --- Rate Limiter (per IP, for upstream requests) ---
+const rateLimits = new Map() // ip -> { count, resetAt }
+const RATE_LIMIT_MAX = 30    // max requests per window
+const RATE_LIMIT_WINDOW = 60000 // 1 minute
+
+function checkRateLimit(ip) {
+  const now = Date.now()
+  let entry = rateLimits.get(ip)
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + RATE_LIMIT_WINDOW }
+    rateLimits.set(ip, entry)
+  }
+  entry.count++
+  return entry.count <= RATE_LIMIT_MAX
+}
+
+// --- Candidate Cache ---
+const candidateCache = new Map() // slug -> { data, fetchedAt }
+const CACHE_TTL = 180000 // 3 minutes
+
 // Default unlimited key
 accessKeys.set('PUTU', {
   label: 'Default (Putu)',
@@ -64,6 +84,7 @@ setInterval(() => {
     if (!v.active && now - v.createdAt > 86400000) accessKeys.delete(k)
   }
   for (const [k, v] of adminSessions) { if (now > v.expiresAt) adminSessions.delete(k) }
+  for (const [k, v] of rateLimits) { if (now > v.resetAt) rateLimits.delete(k) }
 }, 300000)
 
 // ==================== ADMIN AUTH ====================
@@ -197,6 +218,11 @@ app.get('/api/validate-key', (req, res) => {
 // ==================== VOTE TRACKING ====================
 // Intercept vote POST to track per-key votes
 app.post('/event/:event/vote/:candidate', async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Terlalu banyak request. Coba lagi dalam 1 menit.' })
+  }
+
   const accessKey = req.headers['x-access-key'] || req.query.access_key
   const url = `https://voteqrisbali.com${req.originalUrl}`
   try {
@@ -218,7 +244,23 @@ app.post('/event/:event/vote/:candidate', async (req, res) => {
 
 // ==================== PROXY ====================
 const VOTE_API = 'https://voteqrisbali.com'
-async function proxyToVoteQris(req, res) {
+
+// Cached proxy for candidate/event data (read-only, cacheable)
+app.all('/api/events/{*splat}', async (req, res) => {
+  const cacheKey = req.originalUrl
+  const now = Date.now()
+  const cached = candidateCache.get(cacheKey)
+  if (cached && (now - cached.fetchedAt) < CACHE_TTL) {
+    return res.json(cached.data)
+  }
+
+  const ip = req.ip || req.socket.remoteAddress
+  if (!checkRateLimit(ip)) {
+    // If rate limited but have stale cache, serve stale
+    if (cached) return res.json(cached.data)
+    return res.status(429).json({ error: 'Terlalu banyak request. Coba lagi dalam 1 menit.' })
+  }
+
   const url = VOTE_API + req.originalUrl
   try {
     const opts = { method: req.method, headers: { 'Accept': 'application/json' } }
@@ -227,6 +269,27 @@ async function proxyToVoteQris(req, res) {
       opts.body = JSON.stringify(req.body)
     }
     const upstream = await fetch(url, opts)
+    const data = await upstream.json()
+    candidateCache.set(cacheKey, { data, fetchedAt: now })
+    res.status(upstream.status).json(data)
+  } catch (e) {
+    // Serve stale cache on error
+    if (cached) return res.json(cached.data)
+    res.status(502).json({ error: 'Upstream error' })
+  }
+})
+
+// Vote status polling (not cached, but rate limited)
+app.get('/event/vote/{*splat}', async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Terlalu banyak request. Coba lagi dalam 1 menit.' })
+  }
+
+  const url = VOTE_API + req.originalUrl
+  try {
+    const opts = { method: 'GET', headers: { 'Accept': 'application/json' } }
+    const upstream = await fetch(url, opts)
     const ct = upstream.headers.get('content-type') || ''
     res.status(upstream.status)
     if (ct.includes('json')) { res.json(await upstream.json()) }
@@ -234,10 +297,7 @@ async function proxyToVoteQris(req, res) {
   } catch (e) {
     res.status(502).json({ error: 'Upstream error' })
   }
-}
-
-app.all('/api/events/{*splat}', proxyToVoteQris)
-app.get('/event/vote/{*splat}', proxyToVoteQris) // vote status
+})
 
 // ==================== STATIC ====================
 app.use(express.static(join(__dirname, 'dist')))
@@ -955,7 +1015,7 @@ function addCell() {
   showGrid();
   if (!running) running = true;
 
-  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null };
+  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null, pollDelay: 3000 };
   cells.push(c);
 
   var el = document.createElement('div');
@@ -984,7 +1044,7 @@ function renderAddButton() {
 
 function stopAll() {
   running = false;
-  cells.forEach(function(c) { clearInterval(c.poll); clearInterval(c.tick); });
+  cells.forEach(function(c) { clearTimeout(c.poll); clearInterval(c.tick); });
   streak = 0;
   updateStreakDisplay();
 }
@@ -1001,7 +1061,7 @@ async function genQR(c) {
   c.state = 'loading';
   c.voteId = null;
   c.expiresAt = null;
-  clearInterval(c.poll);
+  clearTimeout(c.poll);
   clearInterval(c.tick);
   renderCell(c);
 
@@ -1034,7 +1094,8 @@ async function genQR(c) {
         });
       }
 
-      c.poll = setInterval(function() { pollStatus(c); }, 3000);
+      c.pollDelay = 3000; // reset backoff on new QR
+      schedulePoll(c);
       c.tick = setInterval(function() { updateTimer(c); }, 1000);
       updateTimer(c);
     } else {
@@ -1048,15 +1109,20 @@ async function genQR(c) {
   updateStats();
 }
 
+function schedulePoll(c) {
+  clearTimeout(c.poll);
+  c.poll = setTimeout(function() { pollStatus(c); }, c.pollDelay);
+}
+
 async function pollStatus(c) {
   if (!c.voteId || !running) return;
   try {
     var res = await fetch('/event/vote/' + c.voteId + '/status');
     var data = await res.json();
     var s = (data.status || '').toUpperCase();
-    console.log('Cell #' + c.id + ' status:', s);
+    console.log('Cell #' + c.id + ' status:', s, '(next poll in ' + c.pollDelay + 'ms)');
     if (s === 'COMPLETED' || s === 'PAID' || s === 'SUCCESS' || s === 'SETTLED') {
-      clearInterval(c.poll); clearInterval(c.tick);
+      clearTimeout(c.poll); clearInterval(c.tick);
       c.votes++;
       totalVotes++;
       streak++;
@@ -1069,19 +1135,27 @@ async function pollStatus(c) {
       checkMilestone();
       setTimeout(function() { if (running) genQR(c); }, 1500);
     } else if (s === 'EXPIRED') {
-      clearInterval(c.poll); clearInterval(c.tick);
+      clearTimeout(c.poll); clearInterval(c.tick);
       c.state = 'expired';
       renderCell(c);
       updateStats();
+    } else {
+      // Exponential backoff: 3s -> 5s -> 8s -> 13s (cap at 15s)
+      c.pollDelay = Math.min(c.pollDelay * 1.5, 15000);
+      schedulePoll(c);
     }
-  } catch(e) { console.error('Poll error cell #' + c.id, e); }
+  } catch(e) {
+    console.error('Poll error cell #' + c.id, e);
+    c.pollDelay = Math.min(c.pollDelay * 2, 15000);
+    schedulePoll(c);
+  }
 }
 
 function updateTimer(c) {
   if (!c.expiresAt) return;
   var diff = c.expiresAt.getTime() - Date.now();
   if (diff <= 0) {
-    clearInterval(c.poll); clearInterval(c.tick);
+    clearTimeout(c.poll); clearInterval(c.tick);
     c.state = 'expired';
     renderCell(c); updateStats();
     return;

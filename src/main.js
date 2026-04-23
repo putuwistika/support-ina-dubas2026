@@ -186,9 +186,17 @@ async function renderQRCode(qrString) {
 }
 
 // ==================== POLLING & TIMER ====================
+let pollDelay = 3000
+
 function startStatusPolling() {
   stopPolling()
-  state.pollInterval = setInterval(async () => {
+  pollDelay = 3000 // reset backoff
+  schedulePoll()
+}
+
+function schedulePoll() {
+  stopPolling()
+  state.pollInterval = setTimeout(async () => {
     if (!state.currentVoteId) return
     try {
       const res = await fetch(`${API_BASE}/event/vote/${state.currentVoteId}/status`)
@@ -209,15 +217,21 @@ function startStatusPolling() {
         stopPolling()
         stopTimer()
         renderQuickVote()
+      } else {
+        // Exponential backoff: 3s -> 4.5s -> 6.75s -> ... (cap 15s)
+        pollDelay = Math.min(pollDelay * 1.5, 15000)
+        schedulePoll()
       }
     } catch (e) {
       console.error('Poll error:', e)
+      pollDelay = Math.min(pollDelay * 2, 15000)
+      schedulePoll()
     }
-  }, 3000)
+  }, pollDelay)
 }
 
 function stopPolling() {
-  if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null }
+  if (state.pollInterval) { clearTimeout(state.pollInterval); state.pollInterval = null }
 }
 
 function startTimer() {
