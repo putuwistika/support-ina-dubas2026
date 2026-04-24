@@ -754,6 +754,16 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);min-height:
 .cell.is-success{border-color:var(--green);background:linear-gradient(180deg,rgba(34,197,94,.04) 0%,#fff 100%);box-shadow:0 0 0 3px rgba(34,197,94,.1)}
 .cell.is-expired{border-color:var(--red);opacity:.7}
 
+/* Instant swap animation — green flash + card flip */
+.cell.instant-swap{animation:instantSwap .45s cubic-bezier(.175,.885,.32,1.275)}
+@keyframes instantSwap{
+  0%{transform:rotateY(90deg) scale(.9);border-color:var(--green);box-shadow:0 0 24px rgba(34,197,94,.4)}
+  40%{transform:rotateY(-5deg) scale(1.03);border-color:var(--green);box-shadow:0 0 16px rgba(34,197,94,.25)}
+  100%{transform:rotateY(0) scale(1);border-color:var(--accent);box-shadow:0 0 0 3px rgba(200,149,108,.08)}
+}
+/* Green pulse border on swap */
+.cell.green-flash{border-color:var(--green)!important;box-shadow:0 0 20px rgba(34,197,94,.35)!important;transition:none}
+
 .cell-num{position:absolute;top:10px;left:12px;font-size:9px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:1.5px}
 
 /* Loading */
@@ -1092,6 +1102,12 @@ async function genQR(c) {
     console.log('%c[PREFETCH] Cell #' + c.id + ' INSTANT swap — no loading!', 'color:#22c55e;font-weight:bold');
     var data = c.nextQR;
     applyQR(c, data);
+    // Trigger flip animation
+    var el = document.getElementById('cell-' + c.id);
+    if (el) {
+      el.classList.add('instant-swap');
+      el.addEventListener('animationend', function() { el.classList.remove('instant-swap'); }, { once: true });
+    }
     return;
   }
 
