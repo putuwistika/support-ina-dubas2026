@@ -31,9 +31,6 @@ function checkRateLimit(ip) {
   return entry.count <= RATE_LIMIT_MAX
 }
 
-// --- Candidate Cache ---
-const candidateCache = new Map() // slug -> { data, fetchedAt }
-const CACHE_TTL = 180000 // 3 minutes
 
 // Default unlimited key
 accessKeys.set('PUTU', {
@@ -245,19 +242,10 @@ app.post('/event/:event/vote/:candidate', async (req, res) => {
 // ==================== PROXY ====================
 const VOTE_API = 'https://voteqrisbali.com'
 
-// Cached proxy for candidate/event data (read-only, cacheable)
-app.all('/api/events/{*splat}', async (req, res) => {
-  const cacheKey = req.originalUrl
-  const now = Date.now()
-  const cached = candidateCache.get(cacheKey)
-  if (cached && (now - cached.fetchedAt) < CACHE_TTL) {
-    return res.json(cached.data)
-  }
-
+// Direct proxy — no caching, always real-time data
+async function proxyToVoteQris(req, res) {
   const ip = req.ip || req.socket.remoteAddress
   if (!checkRateLimit(ip)) {
-    // If rate limited but have stale cache, serve stale
-    if (cached) return res.json(cached.data)
     return res.status(429).json({ error: 'Terlalu banyak request. Coba lagi dalam 1 menit.' })
   }
 
@@ -269,27 +257,6 @@ app.all('/api/events/{*splat}', async (req, res) => {
       opts.body = JSON.stringify(req.body)
     }
     const upstream = await fetch(url, opts)
-    const data = await upstream.json()
-    candidateCache.set(cacheKey, { data, fetchedAt: now })
-    res.status(upstream.status).json(data)
-  } catch (e) {
-    // Serve stale cache on error
-    if (cached) return res.json(cached.data)
-    res.status(502).json({ error: 'Upstream error' })
-  }
-})
-
-// Vote status polling (not cached, but rate limited)
-app.get('/event/vote/{*splat}', async (req, res) => {
-  const ip = req.ip || req.socket.remoteAddress
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Terlalu banyak request. Coba lagi dalam 1 menit.' })
-  }
-
-  const url = VOTE_API + req.originalUrl
-  try {
-    const opts = { method: 'GET', headers: { 'Accept': 'application/json' } }
-    const upstream = await fetch(url, opts)
     const ct = upstream.headers.get('content-type') || ''
     res.status(upstream.status)
     if (ct.includes('json')) { res.json(await upstream.json()) }
@@ -297,7 +264,10 @@ app.get('/event/vote/{*splat}', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: 'Upstream error' })
   }
-})
+}
+
+app.all('/api/events/{*splat}', proxyToVoteQris)
+app.get('/event/vote/{*splat}', proxyToVoteQris)
 
 // ==================== STATIC ====================
 app.use(express.static(join(__dirname, 'dist')))
