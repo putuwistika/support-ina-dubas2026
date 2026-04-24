@@ -171,7 +171,7 @@ async function prefetchNextVoteQR() {
   prefetching = false
 }
 
-function applyVoteQR(data) {
+function applyVoteQR(data, wasInstant = false) {
   state.currentVoteId = data.vote_id
   state.expiresAt = new Date(data.expires_at)
   state.qrState = 'showing'
@@ -181,6 +181,14 @@ function applyVoteQR(data) {
   renderQRCode(data.qr_string)
   startStatusPolling()
   startTimer()
+  // Add flip animation if this was an instant swap
+  if (wasInstant) {
+    const card = document.querySelector('.qr-card')
+    if (card) {
+      card.classList.add('instant-swap')
+      card.addEventListener('animationend', () => card.classList.remove('instant-swap'), { once: true })
+    }
+  }
   // Pre-fetch next QR immediately
   prefetchNextVoteQR()
 }
@@ -189,7 +197,7 @@ async function initiateVote() {
   // If pre-fetched QR is ready, use it instantly
   if (nextQRData) {
     console.log('%c[PREFETCH] INSTANT swap — no loading!', 'color:#22c55e;font-weight:bold')
-    applyVoteQR(nextQRData)
+    applyVoteQR(nextQRData, true)
     return
   }
 
@@ -242,8 +250,13 @@ function schedulePoll() {
         stopTimer()
         fetchVoteCount()
         playSuccess()
-        // Instant swap to next QR
-        initiateVote()
+        // Show green flash on current card, then swap
+        const card = document.querySelector('.qr-card')
+        if (card) {
+          card.classList.add('green-flash')
+        }
+        // Quick flash then instant swap
+        setTimeout(() => initiateVote(), 350)
       } else if (s === 'EXPIRED') {
         state.qrState = 'expired'
         nextQRData = null
