@@ -144,28 +144,58 @@ function renderLeaderboardList(container) {
 }
 
 // ==================== VOTE ====================
+let nextQRData = null
+let prefetching = false
+
+async function fetchNewVoteQR() {
+  const res = await fetch(`${API_BASE}/event/${EVENT_SLUG}/vote/${CANDIDATE_ID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Access-Key': state.accessKey || '' },
+  })
+  const data = await res.json()
+  if (data.success && data.qr_string) return data
+  throw new Error(data.message || 'Vote failed')
+}
+
+// Pre-fetch next QR while user is scanning current one
+async function prefetchNextVoteQR() {
+  if (prefetching || nextQRData) return
+  prefetching = true
+  try {
+    nextQRData = await fetchNewVoteQR()
+  } catch (e) {
+    nextQRData = null
+  }
+  prefetching = false
+}
+
+function applyVoteQR(data) {
+  state.currentVoteId = data.vote_id
+  state.expiresAt = new Date(data.expires_at)
+  state.qrState = 'showing'
+  nextQRData = null
+  prefetching = false
+  renderQuickVote()
+  renderQRCode(data.qr_string)
+  startStatusPolling()
+  startTimer()
+  // Pre-fetch next QR immediately
+  prefetchNextVoteQR()
+}
+
 async function initiateVote() {
+  // If pre-fetched QR is ready, use it instantly
+  if (nextQRData) {
+    applyVoteQR(nextQRData)
+    return
+  }
+
   state.qrState = 'loading'
   renderQuickVote()
 
   try {
-    const res = await fetch(`${API_BASE}/event/${EVENT_SLUG}/vote/${CANDIDATE_ID}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Access-Key': state.accessKey || '' },
-    })
-    const data = await res.json()
-
-    if (data.success && data.qr_string) {
-      state.currentVoteId = data.vote_id
-      state.expiresAt = new Date(data.expires_at)
-      state.qrState = 'showing'
-      renderQuickVote()
-      renderQRCode(data.qr_string)
-      startStatusPolling()
-      startTimer()
-    } else {
-      throw new Error(data.message || 'Vote failed')
-    }
+    const data = await fetchNewVoteQR()
+    applyVoteQR(data)
   } catch (e) {
     console.error('Vote failed:', e)
     state.qrState = 'idle'
@@ -190,7 +220,7 @@ let pollDelay = 2000
 
 function startStatusPolling() {
   stopPolling()
-  pollDelay = 2000 // reset backoff
+  pollDelay = 2000
   schedulePoll()
 }
 
@@ -207,18 +237,16 @@ function schedulePoll() {
         stopPolling()
         stopTimer()
         fetchVoteCount()
-        state.qrState = 'success'
         playSuccess()
-        renderQuickVote()
-        // Auto-next after 0.5s
-        setTimeout(() => initiateVote(), 500)
+        // Instant swap to next QR
+        initiateVote()
       } else if (s === 'EXPIRED') {
         state.qrState = 'expired'
+        nextQRData = null
         stopPolling()
         stopTimer()
         renderQuickVote()
       } else {
-        // Gentle backoff: 2s -> 2.5s -> 3s -> 3.5s -> 4s (cap 4s)
         pollDelay = Math.min(pollDelay + 500, 4000)
         schedulePoll()
       }
@@ -510,7 +538,7 @@ function renderQuickVote() {
   const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn }
 
   bind('btn-retry', () => initiateVote())
-  bind('btn-skip', () => { stopPolling(); stopTimer(); initiateVote() })
+  bind('btn-skip', () => { stopPolling(); stopTimer(); nextQRData = null; initiateVote() })
   bind('btn-back', goBack)
   bind('btn-header-back', goBack)
 }
@@ -518,6 +546,7 @@ function renderQuickVote() {
 function goBack() {
   stopPolling()
   stopTimer()
+  nextQRData = null
   state.qrState = 'idle'
   renderLanding()
 }

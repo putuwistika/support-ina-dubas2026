@@ -985,7 +985,7 @@ function addCell() {
   showGrid();
   if (!running) running = true;
 
-  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null, pollDelay: 2000 };
+  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null, pollDelay: 2000, nextQR: null, prefetching: false };
   cells.push(c);
 
   var el = document.createElement('div');
@@ -1026,57 +1026,87 @@ function reloadExpired() {
   });
 }
 
+// Fetch a new QR from API
+async function fetchNewQR() {
+  var res = await fetch('/event/' + EVENT_SLUG + '/vote/' + CANDIDATE_ID, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: '{}'
+  });
+  var text = await res.text();
+  var data = JSON.parse(text);
+  if (data.success && data.qr_string) return data;
+  throw new Error(data.message || 'API error');
+}
+
+// Pre-fetch next QR in background while user is scanning current one
+async function prefetchNextQR(c) {
+  if (c.prefetching || c.nextQR) return;
+  c.prefetching = true;
+  try {
+    c.nextQR = await fetchNewQR();
+    console.log('Cell #' + c.id + ' pre-fetched next QR ready');
+  } catch(e) {
+    console.log('Cell #' + c.id + ' pre-fetch failed (will fetch on demand)');
+    c.nextQR = null;
+  }
+  c.prefetching = false;
+}
+
+// Apply QR data to a cell (shared between genQR and instant swap)
+function applyQR(c, data) {
+  c.state = 'waiting';
+  c.voteId = data.vote_id;
+  c.expiresAt = new Date(data.expires_at);
+  c.nextQR = null;
+  c.prefetching = false;
+  renderCell(c);
+
+  var canvas = document.getElementById('cv-' + c.id);
+  if (canvas) {
+    var sz = qrSize(cells.length);
+    QRCode.toCanvas(canvas, data.qr_string, {
+      width: sz, margin: 2,
+      color: { dark: '#1a3a5c', light: '#ffffff' },
+      errorCorrectionLevel: 'M'
+    });
+  }
+
+  c.pollDelay = 2000;
+  schedulePoll(c);
+  c.tick = setInterval(function() { updateTimer(c); }, 1000);
+  updateTimer(c);
+  updateStats();
+
+  // Start pre-fetching next QR immediately
+  prefetchNextQR(c);
+}
+
 async function genQR(c) {
   if (!running) { running = true; }
+  clearTimeout(c.poll);
+  clearInterval(c.tick);
+
+  // If we have a pre-fetched QR, use it instantly (no loading state!)
+  if (c.nextQR) {
+    var data = c.nextQR;
+    applyQR(c, data);
+    return;
+  }
+
+  // No pre-fetch available, fetch now with loading spinner
   c.state = 'loading';
   c.voteId = null;
   c.expiresAt = null;
-  clearTimeout(c.poll);
-  clearInterval(c.tick);
   renderCell(c);
 
   try {
-    var res = await fetch('/event/' + EVENT_SLUG + '/vote/' + CANDIDATE_ID, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: '{}'
-    });
-    var text = await res.text();
-    var data;
-    try { data = JSON.parse(text); } catch(e) {
-      console.error('Parse error cell #' + c.id, text.substring(0, 200));
-      c.state = 'expired'; renderCell(c); updateStats(); return;
-    }
-
-    if (data.success && data.qr_string) {
-      c.state = 'waiting';
-      c.voteId = data.vote_id;
-      c.expiresAt = new Date(data.expires_at);
-      renderCell(c);
-
-      var canvas = document.getElementById('cv-' + c.id);
-      if (canvas) {
-        var sz = qrSize(cells.length);
-        QRCode.toCanvas(canvas, data.qr_string, {
-          width: sz, margin: 2,
-          color: { dark: '#1a3a5c', light: '#ffffff' },
-          errorCorrectionLevel: 'M'
-        });
-      }
-
-      c.pollDelay = 2000; // reset backoff on new QR
-      schedulePoll(c);
-      c.tick = setInterval(function() { updateTimer(c); }, 1000);
-      updateTimer(c);
-    } else {
-      console.error('API error cell #' + c.id, data);
-      c.state = 'expired'; renderCell(c);
-    }
+    var data = await fetchNewQR();
+    applyQR(c, data);
   } catch(e) {
     console.error('Fetch error cell #' + c.id, e);
-    c.state = 'expired'; renderCell(c);
+    c.state = 'expired'; renderCell(c); updateStats();
   }
-  updateStats();
 }
 
 function schedulePoll(c) {
@@ -1090,23 +1120,22 @@ async function pollStatus(c) {
     var res = await fetch('/event/vote/' + c.voteId + '/status');
     var data = await res.json();
     var s = (data.status || '').toUpperCase();
-    console.log('Cell #' + c.id + ' status:', s, '(next poll in ' + c.pollDelay + 'ms)');
     if (s === 'COMPLETED' || s === 'PAID' || s === 'SUCCESS' || s === 'SETTLED') {
       clearTimeout(c.poll); clearInterval(c.tick);
       c.votes++;
       totalVotes++;
       streak++;
-      c.state = 'success';
-      renderCell(c);
       updateStats();
       updateStreakDisplay();
       showFloatPlus(c);
       playSuccess();
       checkMilestone();
-      setTimeout(function() { if (running) genQR(c); }, 500);
+      // INSTANT swap: use pre-fetched QR or fetch new one immediately
+      if (running) genQR(c);
     } else if (s === 'EXPIRED') {
       clearTimeout(c.poll); clearInterval(c.tick);
       c.state = 'expired';
+      c.nextQR = null;
       renderCell(c);
       updateStats();
     } else {
