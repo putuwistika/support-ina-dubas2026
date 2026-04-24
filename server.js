@@ -1089,12 +1089,14 @@ async function genQR(c) {
 
   // If we have a pre-fetched QR, use it instantly (no loading state!)
   if (c.nextQR) {
+    console.log('%c[PREFETCH] Cell #' + c.id + ' INSTANT swap — no loading!', 'color:#22c55e;font-weight:bold');
     var data = c.nextQR;
     applyQR(c, data);
     return;
   }
 
   // No pre-fetch available, fetch now with loading spinner
+  console.log('%c[PREFETCH] Cell #' + c.id + ' pre-fetch NOT ready — fetching now...', 'color:#f59e0b;font-weight:bold');
   c.state = 'loading';
   c.voteId = null;
   c.expiresAt = null;

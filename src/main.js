@@ -163,7 +163,9 @@ async function prefetchNextVoteQR() {
   prefetching = true
   try {
     nextQRData = await fetchNewVoteQR()
+    console.log('%c[PREFETCH] Next QR ready!', 'color:#22c55e;font-weight:bold')
   } catch (e) {
+    console.log('%c[PREFETCH] Pre-fetch failed', 'color:#ef4444;font-weight:bold')
     nextQRData = null
   }
   prefetching = false
@@ -186,10 +188,12 @@ function applyVoteQR(data) {
 async function initiateVote() {
   // If pre-fetched QR is ready, use it instantly
   if (nextQRData) {
+    console.log('%c[PREFETCH] INSTANT swap — no loading!', 'color:#22c55e;font-weight:bold')
     applyVoteQR(nextQRData)
     return
   }
 
+  console.log('%c[PREFETCH] Not ready — fetching now...', 'color:#f59e0b;font-weight:bold')
   state.qrState = 'loading'
   renderQuickVote()
 
