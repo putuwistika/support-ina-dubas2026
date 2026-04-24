@@ -17,7 +17,7 @@ const adminSessions = new Map()
 
 // --- Rate Limiter (per IP, for upstream requests) ---
 const rateLimits = new Map() // ip -> { count, resetAt }
-const RATE_LIMIT_MAX = 30    // max requests per window
+const RATE_LIMIT_MAX = 60    // max requests per window
 const RATE_LIMIT_WINDOW = 60000 // 1 minute
 
 function checkRateLimit(ip) {
@@ -985,7 +985,7 @@ function addCell() {
   showGrid();
   if (!running) running = true;
 
-  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null, pollDelay: 3000 };
+  var c = { id: nextId++, state: 'idle', voteId: null, expiresAt: null, votes: 0, poll: null, tick: null, pollDelay: 2000 };
   cells.push(c);
 
   var el = document.createElement('div');
@@ -1064,7 +1064,7 @@ async function genQR(c) {
         });
       }
 
-      c.pollDelay = 3000; // reset backoff on new QR
+      c.pollDelay = 2000; // reset backoff on new QR
       schedulePoll(c);
       c.tick = setInterval(function() { updateTimer(c); }, 1000);
       updateTimer(c);
@@ -1103,20 +1103,20 @@ async function pollStatus(c) {
       showFloatPlus(c);
       playSuccess();
       checkMilestone();
-      setTimeout(function() { if (running) genQR(c); }, 1500);
+      setTimeout(function() { if (running) genQR(c); }, 500);
     } else if (s === 'EXPIRED') {
       clearTimeout(c.poll); clearInterval(c.tick);
       c.state = 'expired';
       renderCell(c);
       updateStats();
     } else {
-      // Exponential backoff: 3s -> 5s -> 8s -> 13s (cap at 15s)
-      c.pollDelay = Math.min(c.pollDelay * 1.5, 15000);
+      // Gentle backoff: 2s -> 2.5s -> 3s -> 3.5s -> 4s (cap at 4s)
+      c.pollDelay = Math.min(c.pollDelay + 500, 4000);
       schedulePoll(c);
     }
   } catch(e) {
     console.error('Poll error cell #' + c.id, e);
-    c.pollDelay = Math.min(c.pollDelay * 2, 15000);
+    c.pollDelay = Math.min(c.pollDelay + 1000, 5000);
     schedulePoll(c);
   }
 }

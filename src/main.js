@@ -186,11 +186,11 @@ async function renderQRCode(qrString) {
 }
 
 // ==================== POLLING & TIMER ====================
-let pollDelay = 3000
+let pollDelay = 2000
 
 function startStatusPolling() {
   stopPolling()
-  pollDelay = 3000 // reset backoff
+  pollDelay = 2000 // reset backoff
   schedulePoll()
 }
 
@@ -210,21 +210,21 @@ function schedulePoll() {
         state.qrState = 'success'
         playSuccess()
         renderQuickVote()
-        // Auto-next after 1.5s
-        setTimeout(() => initiateVote(), 1500)
+        // Auto-next after 0.5s
+        setTimeout(() => initiateVote(), 500)
       } else if (s === 'EXPIRED') {
         state.qrState = 'expired'
         stopPolling()
         stopTimer()
         renderQuickVote()
       } else {
-        // Exponential backoff: 3s -> 4.5s -> 6.75s -> ... (cap 15s)
-        pollDelay = Math.min(pollDelay * 1.5, 15000)
+        // Gentle backoff: 2s -> 2.5s -> 3s -> 3.5s -> 4s (cap 4s)
+        pollDelay = Math.min(pollDelay + 500, 4000)
         schedulePoll()
       }
     } catch (e) {
       console.error('Poll error:', e)
-      pollDelay = Math.min(pollDelay * 2, 15000)
+      pollDelay = Math.min(pollDelay + 1000, 5000)
       schedulePoll()
     }
   }, pollDelay)
